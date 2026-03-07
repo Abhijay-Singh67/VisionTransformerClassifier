@@ -54,11 +54,11 @@ def CCEgrad(y,pred):
     pred = np.clip(pred, eps, 1 - eps)
     return -y / pred / pred.shape[0]
 
-def softCCEgrad(preds, targets):
-    return (preds - targets) / preds.shape[0]
+def softCCEgrad(y,pred):
+    return (pred - y) / pred.shape[0]
 
 
-grads = {MSE:MSEgrad,relu:relugrad,sigmoid:siggrad,lin:lingrad,MAE:MAEgrad,softmax:softgrad,CCE:CCEgrad}
+grads = {MSE:MSEgrad,relu:relugrad,sigmoid:siggrad,lin:lingrad,MAE:MAEgrad,CCE:CCEgrad}
 
 def grad(y,pred,loss):
     return grads[loss](y,pred)

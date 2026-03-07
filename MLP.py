@@ -1,11 +1,11 @@
 import numpy as np
-from helper import relu,MSE,grad,actigrad
+from helper import relu,MSE,grad,actigrad,softmax,CCE,softCCEgrad,softgrad
 class Linear:
     def __init__(self,input_features:int,output_features:int, activation=relu):
         self.inp = input_features
         self.out = output_features
-        self.__weights = np.random.randn(input_features,output_features)
-        self.__bias = np.random.randn(1,output_features)
+        self.__weights = np.random.randn(input_features,output_features)*0.02
+        self.__bias = np.random.randn(1,output_features)*0.02
         self.id = 0
         self.activation = activation
         self.current_output=np.zeros(self.__bias.shape)
@@ -36,16 +36,16 @@ class Linear:
 
 class Sequential:
     def __init__(self,*layers,loss=MSE,learning_rate=1e-3):
-        self.__layers = list(layers)
+        self.layers = list(layers)
         self.num_layers = len(layers)
         for i in range(len(layers)):
-            self.__layers[i].id=i
+            self.layers[i].id=i
         self.__lr=learning_rate
         self.__loss=loss
     
     def forwardPass(self,x):
         out = x
-        for i in self.__layers:
+        for i in self.layers:
             out = i.forward(out)
         self.currentOutput = out
         return out
@@ -65,22 +65,51 @@ class Sequential:
         grads=[]
         delta=np.zeros(y.shape)
         for i in range(self.num_layers-1,-1,-1):
-            layer = self.__layers[i]
+            layer = self.layers[i]
             if(i==self.num_layers-1):
-                delta = grad(y,pred,self.__loss)*(actigrad(layer.current_output,layer.activation))
+                if(layer.activation==softmax):
+                    if(self.__loss==CCE):
+                        delta = softCCEgrad(y,pred)
+                    else:
+                        delta = (softgrad(grad(y,pred,self.__loss),layer.current_activated_output))
+                else:
+                    delta = grad(y,pred,self.__loss)*(actigrad(layer.current_output,layer.activation))
             else:
-                next_layer = self.__layers[i+1]
+                next_layer = self.layers[i+1]
                 delta = (delta @ next_layer.weights().T) * actigrad(layer.current_output, layer.activation)
             if i == 0:
                 A_prev = x
             else:
-                A_prev = self.__layers[i-1].current_activated_output
+                A_prev = self.layers[i-1].current_activated_output
             gradW = (A_prev.T @ delta)
             gradB=(np.sum(delta,axis=0,keepdims=True))
             grads.append((layer,gradW,gradB))
         
         for layer,gradW,gradB in grads:
             layer.update(gradW,gradB,self.__lr)
+
+    def backward_delta(self, x, delta):
+        grads = []
+
+        for i in range(self.num_layers - 1, -1, -1):
+            layer = self.layers[i]
+
+            delta = delta * actigrad(layer.current_output, layer.activation)
+
+            if i == 0:
+                A_prev = x
+            else:
+                A_prev = self.layers[i-1].current_activated_output
+
+            gradW = A_prev.T @ delta
+            gradB = np.sum(delta, axis=0, keepdims=True)
+
+            grads.append((layer, gradW, gradB))
+            delta = delta @ layer.weights().T
+
+        for layer, gradW, gradB in grads:
+            layer.update(gradW, gradB, self.__lr)
+        return delta
     
     def predict(self,x):
         return self.forwardPass(x)
@@ -88,7 +117,7 @@ class Sequential:
     def dump(self):
         with open("weights.txt","w") as file:
             text=""
-            for i in self.__layers:
+            for i in self.layers:
                 text+=f"Layer: {i.id}\n"
                 text+=str(i.weights().flatten())+"\n"
                 text+=str(i.bias().flatten())+"\n"
@@ -97,7 +126,7 @@ class Sequential:
     def summary(self):
         print(f"Layers: {self.num_layers}")
         params=0
-        for i in self.__layers:
+        for i in self.layers:
             print(f"Layer: {i.id}, inputs: {i.inp}, outputs: {i.out}")
             params+=(i.inp*i.out)+(i.out)
         print(f"Trainable Params: {params}")
