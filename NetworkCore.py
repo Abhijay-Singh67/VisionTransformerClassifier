@@ -43,9 +43,9 @@ class AttentionHead:
         self.head_dim=head_dim #d
         self.embedding_dim=embedding_dim #D
         #All of these have dimensions D,d
-        self.weight_Q=np.random.randn(embedding_dim,head_dim)/np.sqrt(embedding_dim)
-        self.weight_K=np.random.randn(embedding_dim,head_dim)/np.sqrt(embedding_dim)
-        self.weight_V=np.random.randn(embedding_dim,head_dim)/np.sqrt(embedding_dim)
+        self.weight_Q=np.random.randn(embedding_dim,head_dim)*0.02
+        self.weight_K=np.random.randn(embedding_dim,head_dim)*0.02
+        self.weight_V=np.random.randn(embedding_dim,head_dim)*0.02
 
     def forward(self,E):
         #All of these have dimensions N,d
@@ -91,7 +91,7 @@ class MultiAttentionBlock:
         self.embedding_dim=embedding_dim
         self.num_of_heads=num_of_heads
         self.head_dim=int(embedding_dim/num_of_heads)
-        self.weight_O=np.random.randn(self.embedding_dim,self.embedding_dim)/np.sqrt(self.embedding_dim)
+        self.weight_O=np.random.randn(self.embedding_dim,self.embedding_dim)*0.02
         self.heads=list(AttentionHead(self.embedding_dim,self.head_dim) for i in range(num_of_heads))
     
     def forward(self,E):
@@ -137,7 +137,7 @@ class VisionTransformer:
         self.MLP_hidden_param=MLP_hidden_param
         self.embedding_dim = (self.patch_size**2)*3
         self.num_patches = (self.image_dim // self.patch_size) ** 2
-        self.pos_embedding = np.random.randn(self.num_patches, self.embedding_dim)/np.sqrt(self.embedding_dim)
+        self.pos_embedding = np.random.randn(self.num_patches, self.embedding_dim) * 0.02
 
         self.LN1 = LayerNorm(self.embedding_dim)
         self.LN2 = LayerNorm(self.embedding_dim)
@@ -171,7 +171,6 @@ class VisionTransformer:
         grad_A_total = grad_A+grad_ln2
         grad_embeddings_norm = self.AttentionBlock.backprop(self.current_embeddings_norm,grad_A_total,self.lr)
         grad_embeddings = self.LN1.backward(grad_embeddings_norm,self.lr)
-        self.pos_embedding-=self.lr*grad_embeddings
         return grad_embeddings
 
     
@@ -203,7 +202,7 @@ class ClassificationVIT:
         W1 = self.MLP.layers[0]
         grad_hidden = delta@W2.weights().T
         grad_logits = grad_hidden@W1.weights().T
-        grad_feature_embeddings = np.repeat(grad_logits,self.num_of_patches,axis=0)
+        grad_feature_embeddings = np.repeat(grad_logits/self.num_of_patches,self.num_of_patches,axis=0)
         self.VIT.backprop(grad_feature_embeddings)
 
 
