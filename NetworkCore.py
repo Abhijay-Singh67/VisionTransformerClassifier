@@ -67,6 +67,8 @@ class VisionTransformer:
         self.lr=learning_rate
         self.MLP_hidden_param=MLP_hidden_param
         self.embedding_dim = (self.patch_size**2)*3
+        self.num_patches = (self.image_dim // self.patch_size) ** 2
+        self.pos_embedding = np.random.randn(self.num_patches, self.embedding_dim) * 0.02
 
         self.LN1 = LayerNorm(self.embedding_dim)
         self.LN2 = LayerNorm(self.embedding_dim)
@@ -75,10 +77,11 @@ class VisionTransformer:
     
     def forward(self,x):
         embeddings = patch_embeddings(x,self.image_dim,self.patch_size)
+        embeddings = embeddings + self.pos_embedding
         embeddings_norm = self.LN1.forward(embeddings)
         output = self.AttentionBlock.forward(embeddings_norm)
         output_norm = self.LN2.forward(output)
-        return self.MLP.forwardPass(output_norm)+embeddings #Dimensions: N,D
+        return self.MLP.forwardPass(output_norm)+output #Dimensions: N,D
     
 class ClassificationVIT:
     def __init__(self,image_dim,patch_size,num_of_heads,MLP_hidden_param,output_dim,learning_rate=1e-3):
@@ -98,18 +101,3 @@ class ClassificationVIT:
         logits = np.mean(feature_embeddings,axis=0).reshape(1,-1) #feature pooling
         return self.MLP.forwardPass(logits)
 
-
-
-    
-
-        
-
-
-
-
-
-
-
-
-
-    
