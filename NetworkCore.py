@@ -1,4 +1,6 @@
 import numpy as np
+from MLP import Sequential,Linear
+from helper import lin,softmax,CCE
 
 #The goal of the network is to classify 32x32 RGB images from CIFAR-10 dataset
 
@@ -10,14 +12,6 @@ def patch_embeddings(x,image_dim,patch_size):
         for j in range(0,image_dim,patch_size):
             embeddings.append(x[i:i+patch_size,j:j+patch_size].flatten())
     return np.array(embeddings)
-
-def softmax(x):
-    #Takes the row wise softmax of the attention pattern
-    x = x - np.max(x, axis=1, keepdims=True)
-    x_exp = np.exp(x)
-    return x_exp / np.sum(x_exp, axis=1, keepdims=True)
-
-import numpy as np
 
 class LayerNorm: 
     def __init__(self, embedding_dim, eps=1e-5):
@@ -64,7 +58,47 @@ class MultiAttentionBlock:
         for i in range(1,self.num_of_heads):
             output=np.concatenate((output,self.heads[i].forward(E)),axis=1)
         return (output@self.weight_O)+E #Dimensions: N,D
+
+class VisionTransformer:
+    def __init__(self,image_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=1e-3):
+        self.image_dim=image_dim
+        self.patch_size=patch_size
+        self.num_of_heads=num_of_heads
+        self.lr=learning_rate
+        self.MLP_hidden_param=MLP_hidden_param
+        self.embedding_dim = (self.patch_size**2)*3
+
+        self.LN1 = LayerNorm(self.embedding_dim)
+        self.LN2 = LayerNorm(self.embedding_dim)
+        self.AttentionBlock = MultiAttentionBlock(self.embedding_dim,self.num_of_heads)
+        self.MLP = Sequential(Linear(self.embedding_dim,self.MLP_hidden_param*self.embedding_dim),Linear(self.MLP_hidden_param*self.embedding_dim,self.embedding_dim,lin),learning_rate=self.lr)
     
+    def forward(self,x):
+        embeddings = patch_embeddings(x,self.image_dim,self.patch_size)
+        embeddings_norm = self.LN1.forward(embeddings)
+        output = self.AttentionBlock.forward(embeddings_norm)
+        output_norm = self.LN2.forward(output)
+        return self.MLP.forwardPass(output_norm)+embeddings #Dimensions: N,D
+    
+class ClassificationVIT:
+    def __init__(self,image_dim,patch_size,num_of_heads,MLP_hidden_param,output_dim,learning_rate=1e-3):
+        self.image_dim=image_dim
+        self.output_dim = output_dim
+        self.patch_size=patch_size
+        self.num_of_heads=num_of_heads
+        self.lr=learning_rate
+        self.MLP_hidden_param=MLP_hidden_param
+        self.embedding_dim = (self.patch_size**2)*3
+
+        self.VIT = VisionTransformer(image_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=1e-3)
+        self.MLP = Sequential(Linear(self.embedding_dim,self.MLP_hidden_param*self.embedding_dim),Linear(self.MLP_hidden_param*self.embedding_dim,self.output_dim,softmax),loss=CCE,learning_rate=self.lr)
+    
+    def forward(self,x):
+        feature_embeddings = self.VIT.forward(x)
+        logits = np.mean(feature_embeddings,axis=0).reshape(1,-1) #feature pooling
+        return self.MLP.forwardPass(logits)
+
+
 
     
 
