@@ -90,23 +90,17 @@ class Sequential:
 
     def backward_delta(self, x, delta):
         grads = []
-
         for i in range(self.num_layers - 1, -1, -1):
             layer = self.layers[i]
-
             delta = delta * actigrad(layer.current_output, layer.activation)
-
             if i == 0:
                 A_prev = x
             else:
                 A_prev = self.layers[i-1].current_activated_output
-
             gradW = A_prev.T @ delta
             gradB = np.sum(delta, axis=0, keepdims=True)
-
             grads.append((layer, gradW, gradB))
             delta = delta @ layer.weights().T
-
         for layer, gradW, gradB in grads:
             layer.update(gradW, gradB, self.__lr)
         return delta
