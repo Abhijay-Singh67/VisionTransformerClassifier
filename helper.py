@@ -58,7 +58,22 @@ def softCCEgrad(y,pred):
     return (pred - y) / pred.shape[0]
 
 
-grads = {MSE:MSEgrad,relu:relugrad,sigmoid:siggrad,lin:lingrad,MAE:MAEgrad,CCE:CCEgrad}
+def _softmax_grad_dummy(x):
+    # gradient of softmax is handled explicitly in MLP; this placeholder
+    # prevents a KeyError if someone accidentally calls ``actigrad`` with
+    # softmax.  Multiplying by ones is a no-op.
+    return np.ones_like(x)
+
+
+grads = {
+    MSE: MSEgrad,
+    relu: relugrad,
+    sigmoid: siggrad,
+    lin: lingrad,
+    MAE: MAEgrad,
+    CCE: CCEgrad,
+    softmax: _softmax_grad_dummy,
+}
 
 def grad(y,pred,loss):
     return grads[loss](y,pred)

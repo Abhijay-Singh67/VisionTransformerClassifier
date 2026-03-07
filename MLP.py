@@ -93,8 +93,8 @@ class Sequential:
 
         for i in range(self.num_layers - 1, -1, -1):
             layer = self.layers[i]
-
-            delta = delta * actigrad(layer.current_output, layer.activation)
+            if layer.activation is not softmax:
+                delta = delta * actigrad(layer.current_output, layer.activation)
 
             if i == 0:
                 A_prev = x

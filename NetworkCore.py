@@ -185,24 +185,36 @@ class ClassificationVIT:
         self.embedding_dim = (self.patch_size**2)*3
         self.num_of_patches = (self.image_dim**2)//(self.patch_size**2)
 
-        self.VIT = VisionTransformer(image_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=1e-3)
+        self.VIT = VisionTransformer(image_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=self.lr)
         self.MLP = Sequential(Linear(self.embedding_dim,self.MLP_hidden_param*self.embedding_dim),Linear(self.MLP_hidden_param*self.embedding_dim,self.output_dim,softmax),loss=CCE,learning_rate=self.lr)
     
     def forward(self,x):
         feature_embeddings = self.VIT.forward(x)
-        logits = np.mean(feature_embeddings,axis=0).reshape(1,-1) #feature pooling
-        self.current_feature_embeddings=feature_embeddings
-        self.logits=logits
+        logits = np.mean(feature_embeddings, axis=0).reshape(1, -1)
+        self.current_feature_embeddings = feature_embeddings
+        self.logits = logits
         return self.MLP.forwardPass(logits)
     
-    def backprop(self,x,y,pred):
-        delta = softCCEgrad(y,pred)
-        self.MLP.backProp(self.logits,y,pred)
-        W2 = self.MLP.layers[1]
-        W1 = self.MLP.layers[0]
-        grad_hidden = delta@W2.weights().T
-        grad_logits = grad_hidden@W1.weights().T
-        grad_feature_embeddings = np.repeat(grad_logits/self.num_of_patches,self.num_of_patches,axis=0)
+    def backprop(self, x, y, pred):
+        delta = softCCEgrad(y, pred)
+        grad_logits = self.MLP.backward_delta(self.logits, delta)
+        grad_feature_embeddings = np.repeat(
+            grad_logits / self.num_of_patches, self.num_of_patches, axis=0
+        )
         self.VIT.backprop(grad_feature_embeddings)
+
+    def fit(self, X, Y, epochs: int, batch_size: int = 1):
+        N = X.shape[0]
+        for ep in range(epochs):
+            total_loss = 0.0
+            for i in range(0, N, batch_size):
+                xb = X[i : i + batch_size]
+                yb = Y[i : i + batch_size]
+                for xi, yi in zip(xb, yb):
+                    pred = self.forward(xi)
+                    total_loss += CCE(yi, pred)
+                    self.backprop(xi, yi, pred)
+            avg_loss = total_loss / N
+            print(f"Epoch {ep+1}/{epochs} Loss: {avg_loss:.6f}")
 
 
