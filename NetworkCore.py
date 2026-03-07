@@ -17,6 +17,21 @@ def softmax(x):
     x_exp = np.exp(x)
     return x_exp / np.sum(x_exp, axis=1, keepdims=True)
 
+import numpy as np
+
+class LayerNorm: 
+    def __init__(self, embedding_dim, eps=1e-5):
+        self.gamma = np.ones(embedding_dim)
+        self.beta = np.zeros(embedding_dim)
+        self.eps = eps
+
+    def forward(self, x):
+        mean = np.mean(x, axis=1, keepdims=True)
+        var = np.var(x, axis=1, keepdims=True)
+        x_hat = (x - mean) / np.sqrt(var + self.eps)
+        return self.gamma * x_hat + self.beta
+
+
 class AttentionHead:
     def __init__(self,embedding_dim,head_dim):
         self.head_dim=head_dim #d
