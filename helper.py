@@ -59,9 +59,7 @@ def softCCEgrad(y,pred):
 
 
 def _softmax_grad_dummy(x):
-    # gradient of softmax is handled explicitly in MLP; this placeholder
-    # prevents a KeyError if someone accidentally calls ``actigrad`` with
-    # softmax.  Multiplying by ones is a no-op.
+    #dummy softmax
     return np.ones_like(x)
 
 
