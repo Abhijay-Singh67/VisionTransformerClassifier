@@ -1,6 +1,7 @@
 import numpy as np
+import pickle
 from MLP import Sequential,Linear
-from helper import lin,softmax,CCE,softCCEgrad,softgrad
+from helper import lin,softmax,CCE,softCCEgrad,softgrad,AdamOptimizer
 
 #The goal of the network is to classify 32x32 RGB images from CIFAR-10 dataset
 
@@ -19,6 +20,9 @@ class LayerNorm:
         self.beta = np.zeros(embedding_dim)
         self.eps = eps
 
+        self.opt_gamma = AdamOptimizer(self.gamma.shape)
+        self.opt_beta = AdamOptimizer(self.beta.shape)
+
     def forward(self, x):
         self.mean = np.mean(x, axis=1, keepdims=True)
         self.var = np.var(x, axis=1, keepdims=True)
@@ -28,13 +32,15 @@ class LayerNorm:
     def backward(self, grad_out, lr=None):
         grad_gamma = np.sum(grad_out * self.x_hat, axis=0)
         grad_beta = np.sum(grad_out, axis=0)
+        grad_gamma = np.clip(grad_gamma, -5.0, 5.0)
+        grad_beta = np.clip(grad_beta, -5.0, 5.0)
         grad_xhat = grad_out * self.gamma
         inv_std = 1.0 / np.sqrt(self.var + self.eps)
         grad_x = inv_std * (grad_xhat- np.mean(grad_xhat, axis=1, keepdims=True)- self.x_hat * np.mean(grad_xhat * self.x_hat, axis=1, keepdims=True))
 
         if lr is not None:
-            self.gamma -= lr * grad_gamma
-            self.beta -= lr * grad_beta
+            self.gamma = self.opt_gamma.update(self.gamma,grad_gamma,lr)
+            self.beta = self.opt_beta.update(self.beta,grad_beta,lr)
         return grad_x
 
 
@@ -43,9 +49,12 @@ class AttentionHead:
         self.head_dim=head_dim #d
         self.embedding_dim=embedding_dim #D
         #All of these have dimensions D,d
-        self.weight_Q=np.random.randn(embedding_dim,head_dim)*0.02
-        self.weight_K=np.random.randn(embedding_dim,head_dim)*0.02
-        self.weight_V=np.random.randn(embedding_dim,head_dim)*0.02
+        self.weight_Q=np.random.randn(embedding_dim,head_dim)/np.sqrt(embedding_dim)
+        self.weight_K=np.random.randn(embedding_dim,head_dim)/np.sqrt(embedding_dim)
+        self.weight_V=np.random.randn(embedding_dim,head_dim)/np.sqrt(embedding_dim)
+        self.opt_Q = AdamOptimizer(self.weight_Q.shape)
+        self.opt_K = AdamOptimizer(self.weight_K.shape)
+        self.opt_V = AdamOptimizer(self.weight_V.shape)
 
     def forward(self,E):
         #All of these have dimensions N,d
@@ -71,17 +80,15 @@ class AttentionHead:
         #pattern = QK'
         dQ = dpattern@self.K
         dK = dpattern.T@self.Q
-        grad_WQ = self.E.T@dQ
-        grad_WQ=np.clip(grad_WQ,-5,5)
-        grad_WK = self.E.T@dK
-        grad_WK=np.clip(grad_WK,-5,5)
-        grad_WV = self.E.T@dV
-        grad_WV=np.clip(grad_WV,-5,5)
+        grad_WQ = np.clip(self.E.T@dQ,-5,5)
+        grad_WK = np.clip(self.E.T@dK,-5,5)
+        grad_WV = np.clip(self.E.T@dV,-5,5)
 
         grad_E = dQ@self.weight_Q.T + dK@self.weight_K.T + dV@self.weight_V.T
-        self.weight_Q-=lr*grad_WQ
-        self.weight_K-=lr*grad_WK
-        self.weight_V-=lr*grad_WV
+        
+        self.weight_Q = self.opt_Q.update(self.weight_Q, grad_WQ, lr)
+        self.weight_K = self.opt_K.update(self.weight_K, grad_WK, lr)
+        self.weight_V = self.opt_V.update(self.weight_V, grad_WV, lr)
 
         return grad_E
 
@@ -91,7 +98,8 @@ class MultiAttentionBlock:
         self.embedding_dim=embedding_dim
         self.num_of_heads=num_of_heads
         self.head_dim=int(embedding_dim/num_of_heads)
-        self.weight_O=np.random.randn(self.embedding_dim,self.embedding_dim)*0.02
+        self.weight_O=np.random.randn(self.embedding_dim,self.embedding_dim)/np.sqrt(self.embedding_dim)
+        self.opt_O = AdamOptimizer(self.weight_O.shape)
         self.heads=list(AttentionHead(self.embedding_dim,self.head_dim) for i in range(num_of_heads))
     
     def forward(self,E):
@@ -108,10 +116,9 @@ class MultiAttentionBlock:
         grad_res=grad_A
 
         grad_concat = grad_proj@self.weight_O.T
-        grad_WO = self.concat.T@grad_proj
-        grad_WO = np.clip(grad_WO,-5,5)
+        grad_WO = np.clip(self.concat.T@grad_proj,-5,5)
 
-        self.weight_O-=lr*grad_WO
+        self.weight_O = self.opt_O.update(self.weight_O, grad_WO, lr)
 
         head_dim = self.head_dim
 
@@ -129,15 +136,18 @@ class MultiAttentionBlock:
 
         return grad_E_total
 class VisionTransformer:
-    def __init__(self,image_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=1e-3):
+    def __init__(self,image_dim,embedding_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=1e-3):
         self.image_dim=image_dim
         self.patch_size=patch_size
         self.num_of_heads=num_of_heads
         self.lr=learning_rate
         self.MLP_hidden_param=MLP_hidden_param
-        self.embedding_dim = (self.patch_size**2)*3
+        self.patch_dim = (self.patch_size**2)*3
+        self.embedding_dim=embedding_dim
         self.num_patches = (self.image_dim // self.patch_size) ** 2
-        self.pos_embedding = np.random.randn(self.num_patches, self.embedding_dim) * 0.02
+        self.pos_embedding = np.random.randn(self.num_patches, self.embedding_dim)*0.02
+        self.opt_pos = AdamOptimizer(self.pos_embedding.shape)
+        self.patch_proj = Linear(self.patch_dim,self.embedding_dim)
 
         self.LN1 = LayerNorm(self.embedding_dim)
         self.LN2 = LayerNorm(self.embedding_dim)
@@ -145,7 +155,10 @@ class VisionTransformer:
         self.MLP = Sequential(Linear(self.embedding_dim,self.MLP_hidden_param*self.embedding_dim),Linear(self.MLP_hidden_param*self.embedding_dim,self.embedding_dim,lin),learning_rate=self.lr)
     
     def forward(self,x):
-        embeddings = patch_embeddings(x,self.image_dim,self.patch_size)
+        patches = patch_embeddings(x,self.image_dim,self.patch_size)
+        self.current_patches=patches
+        embeddings = self.patch_proj.forward(patches)
+        embeddings *= np.sqrt(self.embedding_dim)
         embeddings = embeddings + self.pos_embedding
         self.current_embeddings=embeddings
         embeddings_norm = self.LN1.forward(embeddings)
@@ -157,35 +170,47 @@ class VisionTransformer:
         self.current_MLP_output=self.MLP.forwardPass(output_norm)
         return self.current_MLP_output+output #Dimensions: N,D
     
-    def backprop(self,grad_feature_embeddings):
+    def backprop(self, grad_feature_embeddings):
         #We define
         #E=Embeddings+Positional 
         #A=Attention output
         #B=LN2 output
         #C=MLP output
         #Z=C+A (feature_embeddings)
-        grad_C=grad_feature_embeddings
-        grad_A=grad_feature_embeddings
-        grad_B=self.MLP.backward_delta(self.current_attention_output_norm,grad_C)
-        grad_ln2=self.LN2.backward(grad_B,self.lr)
-        grad_A_total = grad_A+grad_ln2
-        grad_embeddings_norm = self.AttentionBlock.backprop(self.current_embeddings_norm,grad_A_total,self.lr)
-        grad_embeddings = self.LN1.backward(grad_embeddings_norm,self.lr)
-        return grad_embeddings
+        grad_C = grad_feature_embeddings
+        grad_A = grad_feature_embeddings
+        
+        grad_B = self.MLP.backward_delta(self.current_attention_output_norm, grad_C)
+        grad_B = np.clip(grad_B, -1.0, 1.0)
+        
+        grad_ln2 = self.LN2.backward(grad_B, self.lr)
+        grad_A_total = grad_A + grad_ln2
+        
+        grad_embeddings_norm = self.AttentionBlock.backprop(self.current_embeddings_norm, grad_A_total, self.lr)
+        grad_embeddings_norm = np.clip(grad_embeddings_norm, -1.0, 1.0)
+        
+        grad_embeddings = self.LN1.backward(grad_embeddings_norm, self.lr)
+        delta = np.clip(grad_embeddings, -1.0, 1.0) 
+        self.pos_embedding = self.opt_pos.update(self.pos_embedding, delta, self.lr)
+        
+        self.patch_proj.update(self.current_patches.T@delta, np.sum(delta, axis=0, keepdims=True),self.lr)
+        grad_patches = delta @ self.patch_proj.weights().T
+        return grad_patches
 
     
 class ClassificationVIT:
-    def __init__(self,image_dim,patch_size,num_of_heads,MLP_hidden_param,output_dim,learning_rate=1e-3):
+    def __init__(self,image_dim,embedding_dim,patch_size,num_of_heads,MLP_hidden_param,output_dim,learning_rate=1e-3):
         self.image_dim=image_dim
         self.output_dim = output_dim
         self.patch_size=patch_size
         self.num_of_heads=num_of_heads
         self.lr=learning_rate
         self.MLP_hidden_param=MLP_hidden_param
-        self.embedding_dim = (self.patch_size**2)*3
+        self.patch_dim = (self.patch_size**2)*3
+        self.embedding_dim=embedding_dim
         self.num_of_patches = (self.image_dim**2)//(self.patch_size**2)
 
-        self.VIT = VisionTransformer(image_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=self.lr)
+        self.VIT = VisionTransformer(image_dim,embedding_dim,patch_size,num_of_heads,MLP_hidden_param,learning_rate=self.lr)
         self.MLP = Sequential(Linear(self.embedding_dim,self.MLP_hidden_param*self.embedding_dim),Linear(self.MLP_hidden_param*self.embedding_dim,self.output_dim,softmax),loss=CCE,learning_rate=self.lr)
     
     def forward(self,x):
@@ -198,23 +223,50 @@ class ClassificationVIT:
     def backprop(self, x, y, pred):
         delta = softCCEgrad(y, pred)
         grad_logits = self.MLP.backward_delta(self.logits, delta)
+        grad_logits = np.clip(grad_logits,-1.0,1.0)
         grad_feature_embeddings = np.repeat(
-            grad_logits / self.num_of_patches, self.num_of_patches, axis=0
-        )
+            grad_logits, self.num_of_patches, axis=0
+        )/self.num_of_patches
         self.VIT.backprop(grad_feature_embeddings)
 
     def fit(self, X, Y, epochs: int, batch_size: int = 1):
         N = X.shape[0]
+
         for ep in range(epochs):
             total_loss = 0.0
+            
+            indices = np.random.permutation(N)
+            X_shuffled = X[indices]
+            Y_shuffled = Y[indices]
+
             for i in range(0, N, batch_size):
-                xb = X[i : i + batch_size]
-                yb = Y[i : i + batch_size]
+                xb = X_shuffled[i : i + batch_size]
+                yb = Y_shuffled[i : i + batch_size]
+                
+                batch_loss = 0.0
+                
                 for xi, yi in zip(xb, yb):
                     pred = self.forward(xi)
-                    total_loss += CCE(yi, pred)
-                    self.backprop(xi, yi, pred)
+                    batch_loss += CCE(yi, pred)
+                    self.backprop(xi, yi, pred) 
+                    
+                total_loss += batch_loss
+
             avg_loss = total_loss / N
             print(f"Epoch {ep+1}/{epochs} Loss: {avg_loss:.6f}")
+
+    def save(self, filename="vit_model.pkl"):
+        with open(filename, "wb") as f:
+            pickle.dump(self, f)
+        print(f"Model successfully saved to {filename}")
+
+    def load(self, filename="vit_model.pkl"):
+        try:
+            with open(filename, "rb") as f:
+                loaded_model = pickle.load(f)
+            self.__dict__.update(loaded_model.__dict__)
+            print(f"Model successfully loaded from {filename}")
+        except FileNotFoundError:
+            print(f"Error: Could not find {filename}. Are you sure it exists?")
 
 

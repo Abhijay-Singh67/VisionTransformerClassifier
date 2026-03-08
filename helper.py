@@ -81,8 +81,44 @@ def grad(y,pred,loss):
 def actigrad(x,act):
     return grads[act](x)
 
-def adam(prev_loss,loss,lr):
-    if (((prev_loss-loss)/prev_loss)<0.5):
-        return loss,lr/1000
-    return prev_loss,lr
-    
+class AdamOptimizer:
+    def __init__(self, shape, beta1=0.9, beta2=0.999, eps=1e-8, weight_decay=0.01):
+        self.m = np.zeros(shape)
+        self.v = np.zeros(shape)
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.eps = eps
+        self.t = 0
+        self.weight_decay = weight_decay
+        
+        # Internal accumulators for True Batching
+        self.grad_accum = np.zeros(shape)
+        self.accum_count = 0
+
+    def update(self, w, grad, lr, batch_size=32):
+        # 1. Add gradient to the accumulator
+        self.grad_accum += grad
+        self.accum_count += 1
+        
+        # 2. If we haven't reached the batch size, return the weights unchanged!
+        if self.accum_count < batch_size:
+            return w
+            
+        # 3. Once we hit the batch size, do the Adam update using the AVERAGED gradient
+        self.t += 1
+        avg_grad = self.grad_accum / self.accum_count
+        
+        self.m = self.beta1 * self.m + (1 - self.beta1) * avg_grad
+        self.v = self.beta2 * self.v + (1 - self.beta2) * (avg_grad ** 2)
+        
+        m_hat = self.m / (1 - self.beta1 ** self.t)
+        v_hat = self.v / (1 - self.beta2 ** self.t)
+        
+        w = w - (lr * self.weight_decay * w)
+        w -= lr * m_hat / (np.sqrt(v_hat) + self.eps)
+        
+        # 4. Reset accumulators for the next batch
+        self.grad_accum.fill(0)
+        self.accum_count = 0
+        
+        return w

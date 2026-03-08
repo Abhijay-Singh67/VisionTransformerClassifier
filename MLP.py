@@ -1,5 +1,5 @@
 import numpy as np
-from helper import relu,MSE,grad,actigrad,softmax,CCE,softCCEgrad,softgrad
+from helper import relu,MSE,grad,actigrad,softmax,CCE,softCCEgrad,softgrad,AdamOptimizer
 class Linear:
     def __init__(self,input_features:int,output_features:int, activation=relu):
         self.inp = input_features
@@ -10,6 +10,9 @@ class Linear:
         self.activation = activation
         self.current_output=np.zeros(self.__bias.shape)
         self.current_activated_output=np.zeros(self.__bias.shape)
+
+        self.opt_W = AdamOptimizer(self.__weights.shape)
+        self.opt_B = AdamOptimizer(self.__bias.shape)
     
     def forward(self,x):
         if(not isinstance(x,np.ndarray)):
@@ -25,8 +28,11 @@ class Linear:
         return self.current_activated_output
     
     def update(self,gradW,gradB,lr):
-        self.__weights = self.__weights-lr*gradW
-        self.__bias = self.__bias - lr*gradB
+        gradW = np.clip(gradW, -5.0, 5.0)
+        gradB = np.clip(gradB, -5.0, 5.0)
+        
+        self.__weights = self.opt_W.update(self.__weights, gradW, lr)
+        self.__bias = self.opt_B.update(self.__bias, gradB, lr)
     
     def weights(self):
         return self.__weights
@@ -77,6 +83,7 @@ class Sequential:
             else:
                 next_layer = self.layers[i+1]
                 delta = (delta @ next_layer.weights().T) * actigrad(layer.current_output, layer.activation)
+            delta=np.clip(delta,-1.0,1.0)
             if i == 0:
                 A_prev = x
             else:
@@ -106,6 +113,7 @@ class Sequential:
 
             grads.append((layer, gradW, gradB))
             delta = delta @ layer.weights().T
+            delta=np.clip(delta,-1.0,1.0)
 
         for layer, gradW, gradB in grads:
             layer.update(gradW, gradB, self.__lr)
