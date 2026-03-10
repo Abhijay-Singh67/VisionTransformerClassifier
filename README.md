@@ -64,12 +64,5 @@ model.fit(x_train, y_train, epochs=50, batch_size=32)
 model.save("vit_model.pkl")
 ```
 ### 📊 Results & Scaling
-On a highly restricted subset of CIFAR-10 (2,000 images), this NumPy implementation successfully converges, achieving ~33% test accuracy in 50 epochs (over 3x better than random guessing), proving the mathematical soundness of the custom attention mechanism and backpropagation logic.
-
-To scale this to 60%+ accuracy:
-
-Remove the data subset limit to train on all 50,000 images.
-
-Implement basic data augmentation (e.g., random horizontal flips).
-
-Stack multiple MultiAttentionBlock layers to learn deeper hierarchical features.
+On CIFAR-10, this NumPy implementation successfully converges, achieving ~63% test accuracy in 150 epochs (over 6x better than random guessing), proving the mathematical soundness of the custom attention mechanism and backpropagation logic.
+The accuracy was less because only one Attention+MLP Block instead of multiple blocks due to limitation of compute.
